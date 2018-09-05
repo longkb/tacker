@@ -54,9 +54,11 @@ def _get_template(name):
 
 class FakeDriverManager(mock.Mock):
     def invoke(self, *args, **kwargs):
-        if any(x in ['create', 'create_chain', 'create_flow_classifier'] for
+        if any(x in ['create', 'create_flow_classifier'] for
                x in args):
             return uuidutils.generate_uuid()
+        elif 'create_chain' in args:
+            return uuidutils.generate_uuid(), uuidutils.generate_uuid()
         elif 'execute_workflow' in args:
             mock_execution = mock.Mock()
             mock_execution.id.return_value = \
@@ -76,10 +78,6 @@ class FakeDriverManager(mock.Mock):
 
 
 def get_by_name():
-    return False
-
-
-def get_by_id():
     return False
 
 
@@ -293,8 +291,7 @@ class TestNfvoPlugin(db_base.SqlTestCase):
             res_state=mock.ANY, res_type=constants.RES_TYPE_VIM,
             tstamp=mock.ANY)
         self._driver_manager.invoke.assert_any_call(
-            vim_type, 'register_vim',
-            context=self.context, vim_obj=vim_dict['vim'])
+            vim_type, 'register_vim', vim_obj=vim_dict['vim'])
         self.assertIsNotNone(res)
         self.assertEqual(SECRET_PASSWORD, res['auth_cred']['password'])
         self.assertIn('id', res)
@@ -308,11 +305,11 @@ class TestNfvoPlugin(db_base.SqlTestCase):
         self._insert_dummy_vim()
         vim_type = u'openstack'
         vim_id = '6261579e-d6f3-49ad-8bc3-a9cb974778ff'
+        self.context.tenant_id = 'ad7ebc56538745a08ef7c5e97f8bd437'
         vim_obj = self.nfvo_plugin._get_vim(self.context, vim_id)
         self.nfvo_plugin.delete_vim(self.context, vim_id)
         self._driver_manager.invoke.assert_called_once_with(
             vim_type, 'deregister_vim',
-            context=self.context,
             vim_obj=vim_obj)
         self._cos_db_plugin.create_event.assert_called_with(
             self.context, evt_type=constants.RES_EVT_DELETE, res_id=mock.ANY,
@@ -328,6 +325,7 @@ class TestNfvoPlugin(db_base.SqlTestCase):
         vim_auth_username = vim_dict['vim']['auth_cred']['username']
         vim_project = vim_dict['vim']['vim_project']
         self._insert_dummy_vim()
+        self.context.tenant_id = 'ad7ebc56538745a08ef7c5e97f8bd437'
         res = self.nfvo_plugin.update_vim(self.context, vim_dict['vim']['id'],
                                           vim_dict)
         vim_obj = self.nfvo_plugin._get_vim(
@@ -335,7 +333,6 @@ class TestNfvoPlugin(db_base.SqlTestCase):
         vim_obj['updated_at'] = None
         self._driver_manager.invoke.assert_called_with(
             vim_type, 'register_vim',
-            context=self.context,
             vim_obj=vim_obj)
         self.assertIsNotNone(res)
         self.assertIn('id', res)
@@ -358,6 +355,7 @@ class TestNfvoPlugin(db_base.SqlTestCase):
         vim_auth_username = vim_dict['vim']['auth_cred']['username']
         vim_project = vim_dict['vim']['vim_project']
         self._insert_dummy_vim_barbican()
+        self.context.tenant_id = 'ad7ebc56538745a08ef7c5e97f8bd437'
         old_vim_obj = self.nfvo_plugin._get_vim(
             self.context, vim_dict['vim']['id'])
         res = self.nfvo_plugin.update_vim(self.context, vim_dict['vim']['id'],
@@ -367,7 +365,6 @@ class TestNfvoPlugin(db_base.SqlTestCase):
         vim_obj['updated_at'] = None
         self._driver_manager.invoke.assert_called_with(
             vim_type, 'delete_vim_auth',
-            context=self.context,
             vim_id=vim_obj['id'],
             auth=old_vim_obj['auth_cred'])
         self.assertIsNotNone(res)
@@ -621,6 +618,7 @@ class TestNfvoPlugin(db_base.SqlTestCase):
                 'name': vnffg.get('name'),
                 'description': 'fake_template_description',
                 'vnffgd_id': vnffg.get('vnffgd_id'),
+                'ns_id': None,
                 'attributes': template_db.get('template'),
                 'status': constants.PENDING_CREATE,
                 'vnf_mapping': vnf_mapping}
@@ -655,6 +653,7 @@ class TestNfvoPlugin(db_base.SqlTestCase):
             self.assertEqual('PENDING_CREATE', result['status'])
             self._driver_manager.invoke.assert_called_with(mock.ANY, mock.ANY,
                                                            name=mock.ANY,
+                                                           path_id=mock.ANY,
                                                            vnfs=mock.ANY,
                                                            fc_ids=mock.ANY,
                                                            auth_attr=mock.ANY,
@@ -676,6 +675,7 @@ class TestNfvoPlugin(db_base.SqlTestCase):
             self.assertEqual('PENDING_CREATE', result['status'])
             self._driver_manager.invoke.assert_called_with(mock.ANY, mock.ANY,
                                                            name=mock.ANY,
+                                                           path_id=mock.ANY,
                                                            vnfs=mock.ANY,
                                                            fc_ids=mock.ANY,
                                                            auth_attr=mock.ANY,
@@ -702,6 +702,7 @@ class TestNfvoPlugin(db_base.SqlTestCase):
             mock_create_vnffgd.assert_called_once_with(mock.ANY, mock.ANY)
             self._driver_manager.invoke.assert_called_with(mock.ANY, mock.ANY,
                                                            name=mock.ANY,
+                                                           path_id=mock.ANY,
                                                            vnfs=mock.ANY,
                                                            fc_ids=mock.ANY,
                                                            auth_attr=mock.ANY,
@@ -723,6 +724,7 @@ class TestNfvoPlugin(db_base.SqlTestCase):
             self.assertEqual('PENDING_CREATE', result['status'])
             self._driver_manager.invoke.assert_called_with(mock.ANY, mock.ANY,
                                                            name=mock.ANY,
+                                                           path_id=mock.ANY,
                                                            vnfs=mock.ANY,
                                                            fc_ids=mock.ANY,
                                                            auth_attr=mock.ANY,
@@ -744,18 +746,18 @@ class TestNfvoPlugin(db_base.SqlTestCase):
             self.assertEqual('PENDING_CREATE', result['status'])
             self._driver_manager.invoke.assert_called_with(mock.ANY, mock.ANY,
                                                            name=mock.ANY,
+                                                           path_id=mock.ANY,
                                                            vnfs=mock.ANY,
                                                            fc_ids=mock.ANY,
                                                            auth_attr=mock.ANY,
                                                            symmetrical=mock.ANY
                                                            )
 
-    @mock.patch.object(nfvo_plugin.NfvoPlugin, '_get_by_id')
-    def test_create_vnffg_param_value_format_error(self, mock_get_by_id):
+    def test_create_vnffg_param_value_format_error(self):
         with patch.object(TackerManager, 'get_service_plugins') as \
                 mock_plugins:
             mock_plugins.return_value = {'VNFM': FakeVNFMPlugin()}
-            mock_get_by_id.value = get_by_id()
+            self._insert_dummy_vnffg_param_template()
             vnffg_obj = utils.get_dummy_vnffg_str_param_obj()
             self.assertRaises(nfvo.VnffgParamValueFormatError,
                               self.nfvo_plugin.create_vnffg,
@@ -768,16 +770,6 @@ class TestNfvoPlugin(db_base.SqlTestCase):
             self._insert_dummy_vnffg_multi_param_template()
             vnffg_obj = utils.get_dummy_vnffg_param_obj()
             self.assertRaises(nfvo.VnffgTemplateParamParsingException,
-                              self.nfvo_plugin.create_vnffg,
-                              self.context, vnffg_obj)
-
-    def test_create_vnffg_param_value_not_use(self):
-        with patch.object(TackerManager, 'get_service_plugins') as \
-                mock_plugins:
-            mock_plugins.return_value = {'VNFM': FakeVNFMPlugin()}
-            self._insert_dummy_vnffg_param_template()
-            vnffg_obj = utils.get_dummy_vnffg_multi_param_obj()
-            self.assertRaises(nfvo.VnffgParamValueNotUsed,
                               self.nfvo_plugin.create_vnffg,
                               self.context, vnffg_obj)
 
@@ -796,6 +788,7 @@ class TestNfvoPlugin(db_base.SqlTestCase):
             self.assertEqual('PENDING_CREATE', result['status'])
             self._driver_manager.invoke.assert_called_with(mock.ANY, mock.ANY,
                                                            name=mock.ANY,
+                                                           path_id=mock.ANY,
                                                            vnfs=mock.ANY,
                                                            fc_ids=mock.ANY,
                                                            auth_attr=mock.ANY,

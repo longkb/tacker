@@ -153,10 +153,6 @@ class VnffgTemplateParamParsingException(exceptions.TackerException):
                 "missing input param %(get_input)s.")
 
 
-class VnffgParamValueNotUsed(exceptions.TackerException):
-    message = _("Param input %(param_key)s not used.")
-
-
 class VnffgPropertyNotFoundException(exceptions.NotFound):
     message = _('VNFFG Property %(vnffg_property)s could not be found')
 
@@ -183,6 +179,11 @@ class VnffgDeleteFailed(exceptions.TackerException):
     message = _('Deleting VNFFG %(vnffg_id)s failed')
 
 
+class VnffgInUseNS(exceptions.TackerException):
+    message = _('VNFFG %(vnffg_id)s belongs to active network service '
+                '%(ns_id)s')
+
+
 class NfpAttributeNotFoundException(exceptions.NotFound):
     message = _('NFP attribute %(attribute)s could not be found')
 
@@ -205,6 +206,11 @@ class NfpPolicyCriteriaIndexError(exceptions.TackerException):
 
 class NfpDuplicatePolicyCriteria(exceptions.TackerException):
     message = _('The %(first_dict)s and %(sec_dict)s are overlapped')
+
+
+class NfpDuplicatePathID(exceptions.TackerException):
+    message = _('The path_id %(path_id)s is overlapped with '
+                'NFP %(nfp_name)s in %(vnffg_name)s')
 
 
 class NfpPolicyTypeError(exceptions.PolicyCheckError):
@@ -306,13 +312,13 @@ RESOURCE_ATTRIBUTE_MAP = {
         'auth_cred': {
             'allow_post': True,
             'allow_put': True,
-            'validate': {'type:dict_or_nodata': None},
+            'validate': {'type:dict_not_empty': None},
             'is_visible': True,
         },
         'vim_project': {
             'allow_post': True,
             'allow_put': True,
-            'validate': {'type:dict_or_nodata': None},
+            'validate': {'type:dict_not_empty': None},
             'is_visible': True,
         },
         'name': {
@@ -482,6 +488,12 @@ RESOURCE_ATTRIBUTE_MAP = {
             'allow_post': True,
             'allow_put': True,
             'validate': {'type:dict_or_nodata': None},
+            'is_visible': True,
+            'default': None,
+        },
+        'ns_id': {
+            'allow_post': True,
+            'allow_put': False,
             'is_visible': True,
             'default': None,
         },
@@ -739,6 +751,13 @@ RESOURCE_ATTRIBUTE_MAP = {
             'is_visible': True,
         },
         'vnf_ids': {
+            'allow_post': True,
+            'allow_put': False,
+            'validate': {'type:string': None},
+            'is_visible': True,
+            'default': '',
+        },
+        'vnffg_ids': {
             'allow_post': True,
             'allow_put': False,
             'validate': {'type:string': None},

@@ -119,7 +119,8 @@ class BarbicanKeyManager(key_manager.KeyManager):
                 project_id=context.tenant)
         else:
             msg = _("context must be of type KeystonePassword, "
-                    "KeystoneToken, RequestContext, or Context.")
+                    "KeystoneToken, RequestContext, or Context, got type "
+                    "%s") % context.__class__.__name__
             LOG.error(msg)
             raise exception.Forbidden(reason=msg)
 
@@ -245,7 +246,6 @@ class BarbicanKeyManager(key_manager.KeyManager):
                 barbican_exception.HTTPServerError) as e:
             LOG.error("Error deleting object: %s", e)
             if self._is_secret_not_found_error(e):
-                raise exception.ManagedObjectNotFoundError(
-                    uuid=managed_object_id)
+                pass
             else:
                 raise exception.KeyManagerError(reason=e)

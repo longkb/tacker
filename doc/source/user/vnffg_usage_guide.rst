@@ -53,10 +53,10 @@ Firstly, HTTP client and HTTP server must be launched.
 
    net_id=$(openstack network list | grep net0 | awk '{print $2}')
 
-   openstack server create --flavor m1.tiny --image cirros-0.3.5-x86_64-disk \
+   openstack server create --flavor m1.tiny --image cirros-0.4.0-x86_64-disk \
    --nic net-id=$net_id http_client
 
-   openstack server create --flavor m1.tiny --image cirros-0.3.5-x86_64-disk \
+   openstack server create --flavor m1.tiny --image cirros-0.4.0-x86_64-disk \
    --nic net-id=$net_id http_server
 
 Creating the VNFFGD
@@ -123,14 +123,32 @@ without "symmetrical", you can ommit "network_dst_port_id" and "ip_dst_prefix".
 
 .. code-block:: yaml
 
-    policy:
-        type: ACL
-        criteria:
-        - network_src_port_id: 640dfd77-c92b-45a3-b8fc-22712de480e1
-          network_dst_port_id: ea206bba-7083-4364-a9f1-c0b7fdf61b6e
-          destination_port_range: 80-1024
-          ip_proto: 6
-          ip_dst_prefix: 192.168.1.2/24
+    Forwarding_path1:
+      type: tosca.nodes.nfv.FP.TackerV2
+      description: creates path (CP12->CP22)
+      properties:
+        id: 51
+        symmetrical: true
+        policy:
+          type: ACL
+          criteria:
+            - name: block_tcp
+              classifier:
+                network_src_port_id: 640dfd77-c92b-45a3-b8fc-22712de480e1
+                network_dst_port_id: ea206bba-7083-4364-a9f1-c0b7fdf61b6e
+                ip_dst_prefix: 192.168.1.2/24
+                destination_port_range: 80-1024
+                ip_proto: 6
+        path:
+          - forwarder: VNFD1
+            capability: CP12
+          - forwarder: VNFD2
+            capability: CP22
+
+In above template, users can set **symmetrical** in properties of a forwarding
+path create symmetrical VNFFG. If this property is not set, **symmetrical**
+will be specified by **--symmetrical** in create VNFFG command (default value
+is False).
 
 You can use the sample VNFFGD template for symmetrical feature (in port chain)
 such as this `link <https://github.com/openstack/tacker/tree/master/samples/
@@ -141,11 +159,11 @@ flow through the path.  This creates an extra classifier to ensure return
 traffic flows through the chain in a reverse path, otherwise this traffic
 routed normally and does not enter the VNFFG.
 
-Tacker provides the following CLI to create a VNFFGD:
+Tacker provides the following OpenStackClient CLI to create a VNFFGD:
 
 .. code-block:: console
 
-   tacker vnffgd-create --vnffgd-file <vnffgd-file> <vnffgd-name>
+   openstack vnf graph descriptor create --vnffgd-file <vnffgd-file> <vnffgd-name>
 
 
 Creating the VNFFG
@@ -158,36 +176,36 @@ same Connection Point definitions as the ones you declared in your VNFFGD.
 
 .. code-block:: console
 
-   tacker vnfd-create --vnfd-file tosca-vnffg-vnfd1.yaml VNFD1
-   tacker vnf-create --vnfd-name VNFD1 VNF1
+   openstack vnf descriptor create --vnfd-file tosca-vnffg-vnfd1.yaml VNFD1
+   openstack vnf create --vnfd-name VNFD1 VNF1
 
-   tacker vnfd-create --vnfd-file tosca-vnffg-vnfd2.yaml VNFD2
-   tacker vnf-create --vnfd-name VNFD2 VNF2
+   openstack vnf descriptor create --vnfd-file tosca-vnffg-vnfd2.yaml VNFD2
+   openstack vnf create --vnfd-name VNFD2 VNF2
 
 Refer the 'Getting Started' link below on how to create a VNFD and deploy
 2 VNFs: `VNF1`_ and `VNF2`_.
 
 https://docs.openstack.org/tacker/latest/install/getting_started.html
 
-Tacker provides the following CLI to create VNFFG from VNFFGD:
+Tacker provides the following OpenStackClient CLI to create VNFFG from VNFFGD:
 
 .. code-block:: console
 
-   tacker vnffg-create --vnffgd-name <vnffgd-name> --vnf-mapping <vnf-mapping> --symmetrical <vnffg-name>
+   openstack vnf graph create --vnffgd-name <vnffgd-name> --vnf-mapping <vnf-mapping> --symmetrical <vnffg-name>
 
 or you can create directly VNFFG from vnffgd template without initiating
 VNFFGD.
 
 .. code-block:: console
 
-   tacker vnffg-create --vnffgd-template <vnffgd-template> --vnf-mapping <vnf-mapping> \
+   openstack vnf graph create --vnffgd-template <vnffgd-template> --vnf-mapping <vnf-mapping> \
    --symmetrical <vnffg-name>
 
 If you use a parameterized vnffg template:
 
 .. code-block:: console
 
-   tacker vnffg-create --vnffgd-name <vnffgd-name> --param-file <param-file> --vnf-mapping <vnf-mapping> \
+   openstack vnf graph create --vnffgd-name <vnffgd-name> --param-file <param-file> --vnf-mapping <vnf-mapping> \
    --symmetrical <vnffg-name>
 
 Here,
@@ -196,7 +214,7 @@ Here,
 * param-file  - Parameter file in Yaml.
 * vnf-mapping - Allows a list of logical VNFD to VNF instance mapping
 * symmetrical - If --symmetrical is present, symmetrical is True
-  (default: False)
+  (default: False - The **symmectical** is set in template has higher priority)
 
 VNF Mapping is used to declare which exact VNF instance to be used for
 each VNF in the Forwarding Path. The following command would list VNFs
@@ -205,7 +223,7 @@ to the desired VNF instance:
 
 .. code-block:: console
 
-   tacker vnf-list
+   openstack vnf list
 
    +--------------------------------------+------+---------------------------+--------+--------------------------------------+--------------------------------------+
    | id                                   | name | mgmt_url                  | status | vim_id                               | vnfd_id                              |
@@ -214,7 +232,7 @@ to the desired VNF instance:
    | 91e32c20-6d1f-47a4-9ba7-08f5e5effe07 | VNF1 | {"VDU1": "192.168.1.7"}   | ACTIVE | 0e70ec23-6f32-420a-a039-2cdb2c20c329 | 27795330-62a7-406d-9443-2daad76e674b |
    +--------------------------------------+------+---------------------------+--------+--------------------------------------+--------------------------------------+
 
-   tacker vnffg-create --vnffgd-name myvnffgd --vnf-mapping \
+   openstack vnf graph create --vnffgd-name myvnffgd --vnf-mapping \
    VNFD1:'91e32c20-6d1f-47a4-9ba7-08f5e5effe07',VNFD2:'7168062e-9fa1-4203-8cb7-f5c99ff3ee1b' --symmetrical myvnffg
 
 Alternatively, if no vnf-mapping is provided then Tacker VNFFG will attempt
@@ -243,7 +261,7 @@ VNFFG command with parameter file:
 
 .. code-block:: console
 
-   tacker vnffg-create --vnffgd-name vnffgd-param --vnf-mapping VNFD1:'91e32c20-6d1f-47a4-9ba7-08f5e5effe07',\
+   openstack vnf graph create --vnffgd-name vnffgd-param --vnf-mapping VNFD1:'91e32c20-6d1f-47a4-9ba7-08f5e5effe07',\
    VNFD2:'7168062e-9fa1-4203-8cb7-f5c99ff3ee1b' --param-file vnffg-param-file.yaml myvnffg
 
 
@@ -256,18 +274,18 @@ Viewing a VNFFG
 A VNFFG once created is instantiated as multiple sub-components.  These
 components include the VNFFG itself, which relies on a Network Forwarding
 Path (NFP).  The NFP is then composed of a Service Function Chain (SFC) and
-a Classifier.  The main command to view a VNFFG is 'tacker vnffg-show,
+a Classifier.  The main command to view a VNFFG is 'openstack vnf graph show',
 however there are several commands available in order to view the
 sub-components for a rendered VNFFG:
 
 .. code-block:: console
 
-   tacker nfp-list
-   tacker nfp-show <nfp id>
-   tacker chain-list
-   tacker chain-show <chain id>
-   tacker classifier-list
-   tacker classifier-show <classifier id>
+   openstack vnf network forwarding path list
+   openstack vnf network forwarding path show <nfp id>
+   openstack vnf chain list
+   openstack vnf chain show <chain id>
+   openstack vnf classifier list
+   openstack vnf classifier show <classifier id>
 
 Updating the VNFFG
 ~~~~~~~~~~~~~~~~~~
@@ -279,14 +297,14 @@ Using the below command query the list of existing VNFFG templates.
 
 .. code-block:: console
 
-    tacker vnffg-list
+    openstack vnf graph list
 
-    +--------------------+---------+-------+-------------------------------------+
-    |    id              | name   | status | vnffgd_id                           |
-    +--------------------+-----------------+-------------------------------------+
-    | f4438511-e33d-43df-|        |        |                                     |
-    | 95d9-0199253db72e  | myvnffg| ACTIVE | bd7829bf-85de-4f3b-960a-8482028bfb34|
-    +--------------------+---------+-------+-------------+--------+--------------+
+    +--------------------+---------+--------+-------------------------------------+
+    |    ID              | Name    | Status | VNFFGD ID                           |
+    +--------------------+------------------+-------------------------------------+
+    | f4438511-e33d-43df-|         |        |                                     |
+    | 95d9-0199253db72e  | myvnffg | ACTIVE | bd7829bf-85de-4f3b-960a-8482028bfb34|
+    +--------------------+---------+--------+-------------+--------+--------------+
 
 
 After the user located the VNFFG the subsequent action is to update it.
@@ -303,7 +321,7 @@ of VNFFG creation.
 
 .. code-block:: console
 
-   tacker vnffg-show myvnffg
+   openstack vnf graph show myvnffg
 
 After user determined which VNF is used and which VNF is going to be used
 in the update procedure he can execute:
@@ -312,7 +330,7 @@ To update the VNF mappings to VNFFG, execute the below command
 
 .. code-block:: console
 
-   tacker vnffg-update --vnf-mapping VNFD1:vnf1,VNFD2:vnf2 myvnffg
+   openstack vnf graph set --vnf-mapping VNFD1:vnf1,VNFD2:vnf2 myvnffg
 
    Updated vnffg: myvnffg
 
@@ -341,6 +359,7 @@ derived from the following VNFFGD template.
          description: creates path (CP1)
          properties:
            id: 51
+           symmetrical: false
            policy:
              type: ACL
              criteria:
@@ -382,6 +401,7 @@ By using the below VNFFGD template we can update the exisitng VNFFG.
          description: creates path (CP1->CP2)
          properties:
            id: 52
+           symmetrical: false
            policy:
              type: ACL
              criteria:
@@ -422,7 +442,7 @@ below command:
 
 .. code-block:: console
 
-   tacker vnffg-update --vnffgd-template myvnffgd.yaml myvnffg
+   openstack vnf graph set --vnffgd-template myvnffgd.yaml myvnffg
 
    Updated vnffg: myvnffg
 
@@ -430,7 +450,7 @@ Of course the above update VNFFG's choices can be combined in a single command.
 
 .. code-block:: console
 
-   tacker vnffg-update --vnf-mapping VNFD1:vnf1,VNFD2:vnf2 --vnffgd-template myvnffgd.yaml myvnffg
+   openstack vnf graph set --vnf-mapping VNFD1:vnf1,VNFD2:vnf2 --vnffgd-template myvnffgd.yaml myvnffg
 
    Updated vnffg: myvnffg
 

@@ -39,7 +39,7 @@ Here is the sample template:
        VDU1:
          type: tosca.nodes.nfv.VDU.Tacker
          properties:
-           image: cirros-0.3.5-x86_64-disk
+           image: cirros-0.4.0-x86_64-disk
            flavor: m1.tiny
            availability_zone: nova
            mgmt_driver: noop
@@ -110,7 +110,7 @@ want to be able to supply different values for the parameters
 
 The next step is to substitute the identified parameter values that will be
 provided at deploy time with { get_input: <param_name>}. For example, the
-instance_type: **cirros-0.3.5-x86_64-disk** would now be replaced as:
+instance_type: **cirros-0.4.0-x86_64-disk** would now be replaced as:
 **image: {get_input: image_name}**. The **get_input** is a reserved
 keyword in the template that indicates value will be supplied at deploy time
 for the parameter instance_type. The **image_name** is the variable that will
@@ -236,7 +236,7 @@ VNF deploy.
 
 .. code-block:: yaml
 
-    image_name: cirros-0.3.5-x86_64-disk
+    image_name: cirros-0.4.0-x86_64-disk
     flavor: m1.tiny
     zone: nova
     network: net_mgmt
@@ -264,12 +264,12 @@ Key Summary
    in the parameters value file.
 #. Supply a parameters value file in yaml format each time during VNF
    deployment with different values for the parameters.
-#. An example of a vnf-create python-tackerclient command specifying a
+#. An example of a OpenStackClient vnf creation command specifying a
    parameterized template and parameter values file would like below:
 
    .. code-block:: console
 
-      tacker vnf-create --vnfd-name <vnfd_name> --param-file <param_yaml_file> <vnf_name>
+      openstack vnf create --vnfd-name <vnfd_name> --param-file <param_yaml_file> <vnf_name>
 
 #. Specifying a parameter values file during VNF creation is also supported in
    Horizon UI.

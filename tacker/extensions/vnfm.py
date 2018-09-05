@@ -75,6 +75,10 @@ class VNFDeleteWaitFailed(exceptions.TackerException):
     message = _('%(reason)s')
 
 
+class VNFDeleteFailed(exceptions.TackerException):
+    message = _('%(reason)s')
+
+
 class VNFDNotFound(exceptions.NotFound):
     message = _('VNFD %(vnfd_id)s could not be found')
 
@@ -143,6 +147,11 @@ class VNFInactive(exceptions.InvalidInput):
 
 class MetadataNotMatched(exceptions.InvalidInput):
     message = _("Metadata for alarm policy is not matched")
+
+
+class InvalidResourceType(exceptions.InvalidInput):
+    message = _("Resource type %(resource_type)s for alarm policy "
+                "is not supported")
 
 
 class InvalidSubstitutionMapping(exceptions.InvalidInput):

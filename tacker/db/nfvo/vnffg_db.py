@@ -24,6 +24,7 @@ from sqlalchemy.orm import exc as orm_exc
 from tacker.db import db_base
 from tacker.db import model_base
 from tacker.db import models_v1
+from tacker.db.nfvo.ns_db import NS
 from tacker.db import types
 from tacker.extensions import nfvo
 from tacker.extensions.nfvo_plugins import vnffg
@@ -97,6 +98,9 @@ class Vnffg(model_base.BASE, models_v1.HasTenant, models_v1.HasId):
 
     attributes = sa.Column(types.Json)
 
+    # Associated Network Service
+    ns_id = sa.Column(types.Uuid, sa.ForeignKey('ns.id'), nullable=True)
+
 
 class VnffgNfp(model_base.BASE, models_v1.HasTenant, models_v1.HasId):
     """Network Forwarding Path Data Model"""
@@ -111,7 +115,7 @@ class VnffgNfp(model_base.BASE, models_v1.HasTenant, models_v1.HasId):
                              uselist=False)
 
     status = sa.Column(sa.String(255), nullable=False)
-    path_id = sa.Column(sa.String(255), nullable=False)
+    path_id = sa.Column(sa.String(255), nullable=True)
 
     # symmetry of forwarding path
     symmetrical = sa.Column(sa.Boolean(), default=False)
@@ -130,7 +134,7 @@ class VnffgChain(model_base.BASE, models_v1.HasTenant, models_v1.HasId):
     # chain
     chain = sa.Column(types.Json)
 
-    path_id = sa.Column(sa.String(255), nullable=False)
+    path_id = sa.Column(sa.String(255), nullable=True)
     nfp_id = sa.Column(types.Uuid, sa.ForeignKey('vnffgnfps.id'))
 
 
@@ -332,7 +336,7 @@ class VnffgPluginDbMixin(vnffg.VNFFGPluginBase, db_base.CommonDbMixin):
                 param_value=param_vattrs_dict)
         for param_key in param_vattrs_dict.keys():
             if param_matched.get(param_key) is None:
-                raise nfvo.VnffgParamValueNotUsed(param_key=param_key)
+                LOG.warning("Param input %s not used.", param_key)
 
     def _parametrize_topology_template(self, vnffg, template_db):
         if vnffg.get('attributes') and \
@@ -353,7 +357,10 @@ class VnffgPluginDbMixin(vnffg.VNFFGPluginBase, db_base.CommonDbMixin):
         name = vnffg.get('name')
         vnffg_id = vnffg.get('id') or uuidutils.generate_uuid()
         template_id = vnffg['vnffgd_id']
-        symmetrical = vnffg['symmetrical']
+        ns_id = vnffg.get('ns_id', None)
+        symmetrical_in_temp = self._get_symmetrical_template(context, vnffg)
+        symmetrical = symmetrical_in_temp if symmetrical_in_temp is not None \
+            else vnffg.get('symmetrical')
 
         with context.session.begin(subtransactions=True):
             template_db = self._get_resource(context, VnffgTemplate,
@@ -371,12 +378,24 @@ class VnffgPluginDbMixin(vnffg.VNFFGPluginBase, db_base.CommonDbMixin):
             # create NFP dict
             nfp_dict = self._create_nfp_pre(template_db)
             LOG.debug('NFP: %s', nfp_dict)
+            path_id = nfp_dict['path_id']
+            try:
+                if path_id:
+                    vnffgNfp_db = (self._model_query(context, VnffgNfp).
+                                   filter(VnffgNfp.path_id == path_id).one())
+                    raise nfvo.NfpDuplicatePathID(path_id=path_id,
+                                                  nfp_name=vnffgNfp_db.name,
+                                                  vnffg_name=name)
+            except orm_exc.NoResultFound:
+                pass
+
             vnffg_db = Vnffg(id=vnffg_id,
                              tenant_id=tenant_id,
                              name=name,
                              description=template_db.description,
                              vnf_mapping=vnf_mapping,
                              vnffgd_id=template_id,
+                             ns_id=ns_id,
                              attributes=template_db.get('template'),
                              status=constants.PENDING_CREATE)
             context.session.add(vnffg_db)
@@ -395,7 +414,7 @@ class VnffgPluginDbMixin(vnffg.VNFFGPluginBase, db_base.CommonDbMixin):
                               tenant_id=tenant_id,
                               name=nfp_dict['name'],
                               status=constants.PENDING_CREATE,
-                              path_id=nfp_dict['path_id'],
+                              path_id=path_id,
                               symmetrical=symmetrical)
             context.session.add(nfp_db)
 
@@ -408,7 +427,7 @@ class VnffgPluginDbMixin(vnffg.VNFFGPluginBase, db_base.CommonDbMixin):
                                 symmetrical=symmetrical,
                                 chain=chain,
                                 nfp_id=nfp_id,
-                                path_id=nfp_dict['path_id'])
+                                path_id=path_id)
 
             context.session.add(sfc_db)
 
@@ -440,13 +459,8 @@ class VnffgPluginDbMixin(vnffg.VNFFGPluginBase, db_base.CommonDbMixin):
         # we assume only one NFP for initial implementation
         nfp_dict['name'] = template['groups'][vnffg_name]['members'][0]
         nfp_dict['path_id'] = template['node_templates'][nfp_dict['name']][
-            'properties']['id']
-
-        if not nfp_dict['path_id']:
-            # TODO(trozet): do we need to check if this path ID is already
-            # taken by another VNFFG
-            nfp_dict['path_id'] = random.randint(1, 16777216)
-
+            'properties'].get('id', None)
+        # 'path_id' will be updated when creating port chain is done
         return nfp_dict
 
     def _create_port_chain(self, context, vnf_mapping, template_db, nfp_name):
@@ -754,7 +768,7 @@ class VnffgPluginDbMixin(vnffg.VNFFGPluginBase, db_base.CommonDbMixin):
 
     # called internally, not by REST API
     # instance_id = None means error on creation
-    def _create_vnffg_post(self, context, sfc_instance_id,
+    def _create_vnffg_post(self, context, sfc_instance_id, path_id,
                            classifiers_map, vnffg_dict):
         LOG.debug('SFC created instance is %s', sfc_instance_id)
         LOG.debug('Flow Classifiers created instances are %s',
@@ -762,11 +776,16 @@ class VnffgPluginDbMixin(vnffg.VNFFGPluginBase, db_base.CommonDbMixin):
         nfp_dict = self.get_nfp(context, vnffg_dict['forwarding_paths'])
         sfc_id = nfp_dict['chain_id']
         with context.session.begin(subtransactions=True):
+            nfp_query = (self._model_query(context, VnffgNfp).
+                         filter(VnffgNfp.id == nfp_dict['id']).
+                         filter(VnffgNfp.status == constants.PENDING_CREATE).
+                         one())
+            nfp_query.update({'path_id': path_id})
             query = (self._model_query(context, VnffgChain).
                      filter(VnffgChain.id == sfc_id).
                      filter(VnffgChain.status == constants.PENDING_CREATE).
                      one())
-            query.update({'instance_id': sfc_instance_id})
+            query.update({'instance_id': sfc_instance_id, 'path_id': path_id})
             if sfc_instance_id is None:
                 query.update({'status': constants.ERROR})
             else:
@@ -835,7 +854,7 @@ class VnffgPluginDbMixin(vnffg.VNFFGPluginBase, db_base.CommonDbMixin):
         res = {
             'forwarding_paths': vnffg_db.forwarding_paths[0]['id']
         }
-        key_list = ('id', 'tenant_id', 'name', 'description',
+        key_list = ('id', 'tenant_id', 'name', 'description', 'ns_id',
                     'vnf_mapping', 'status', 'vnffgd_id', 'attributes')
         res.update((key, vnffg_db[key]) for key in key_list)
         return self._fields(res, fields)
@@ -1240,6 +1259,14 @@ class VnffgPluginDbMixin(vnffg.VNFFGPluginBase, db_base.CommonDbMixin):
 
     def _delete_vnffg_pre(self, context, vnffg_id):
         vnffg = self.get_vnffg(context, vnffg_id)
+        ns_id = vnffg.get('ns_id')
+        if ns_id:
+            ns_db = self._get_resource(context, NS, ns_id)
+            # If network service is not in pending_delete status,
+            # raise error when delete vnffg.
+            if ns_db['status'] != constants.PENDING_DELETE:
+                raise nfvo.VnffgInUseNS(vnffg_id=vnffg_id,
+                                        ns_id=vnffg.get('ns_id'))
         nfp = self.get_nfp(context, vnffg['forwarding_paths'])
         chain = self.get_sfc(context, nfp['chain_id'])
         classifiers = [self.get_classifier(context, classifier_id)
@@ -1310,6 +1337,19 @@ class VnffgPluginDbMixin(vnffg.VNFFGPluginBase, db_base.CommonDbMixin):
 
             if template_db.get('template_source') == 'inline':
                 self.delete_vnffgd(context, vnffgd_id)
+
+    def _get_symmetrical_template(self, context, vnffg):
+        vnffgd_topo = None
+        if vnffg.get('vnffgd_template'):
+            vnffgd_topo = vnffg['vnffgd_template']['topology_template']
+        elif vnffg.get('vnffgd_id'):
+            vnffgd_template = self.get_vnffgd(context, vnffg.get('vnffgd_id'))
+            vnffgd_topo = vnffgd_template['template']['vnffgd'][
+                'topology_template']
+        vnffg_name = list(vnffgd_topo['groups'].keys())[0]
+        nfp_name = vnffgd_topo['groups'][vnffg_name]['members'][0]
+        fp_prop = vnffgd_topo['node_templates'][nfp_name]['properties']
+        return fp_prop.get('symmetrical', None)
 
     def _make_template_dict(self, template, fields=None):
         res = {}

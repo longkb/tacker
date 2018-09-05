@@ -10,16 +10,36 @@ vim key in devstack environment.
 The brief code workflow is described as following:
 
 When creating a vim:
-We use fernet to encrypt vim password, save the fernet key into barbican
-as a secret, save encrypted into vim db's field **password**,
-and then save the secret uuid into vim db field **secret_uuid**.
+We use fernet to encrypt the VIM password, then use the tacker service tenant
+configured in the tacker.conf to save the fernet key to the barbican as
+a secret. barbican will return **secret_uuid**.
+then save encrypted into vim db's field **password**, and save the secret uuid
+into vim db field **secret_uuid**.
+
+Tacker service tenant configured in the tacker.conf as follows:
+
+.. code-block:: ini
+
+    [keystone_authtoken]
+    memcached_servers = localhost:11211
+    signing_dir = /var/cache/tacker
+    cafile = /opt/stack/data/ca-bundle.pem
+    project_domain_name = <DOMAIN_NAME>
+    project_name = service
+    user_domain_name = <DOMAIN_NAME>
+    username = <TACKER_USER_NAME>
+    password = <TACKER_SERVICE_USER_PASSWORD>
+    auth_url = http://127.0.0.1/identity
+    auth_type = password
 
 When retrieving vim password:
-We use **secret_uuid** to get the fernet key from barbican, and decode with
-**password** using fernet.
+We use the tacker service tenant configured in the tacker.conf and
+**secret_uuid** to get the fernet key from barbican, and decode
+with **password** using fernet.
 
 When deleting a vim:
-We delete the secret by the **secret_uuid** in vim db from barbican.
+We use the tacker service tenant configured in the tacker.conf to delete
+the secret by the **secret_uuid** in vim db from barbican.
 
 
 How to test
@@ -48,7 +68,7 @@ Create a vim and verify it works:
    $ openstack role add --project test --user test admin
 
    $ cat vim-test.yaml
-   auth_url: 'http://127.0.0.1:5000'
+   auth_url: 'http://127.0.0.1/identity'
    username: 'test'
    password: 'Passw0rd'
    project_name: 'test'
@@ -63,7 +83,7 @@ Create a vim and verify it works:
    export OS_PROJECT_NAME=test
    export OS_USER_DOMAIN_NAME=Default
    export OS_PROJECT_DOMAIN_NAME=Default
-   export OS_AUTH_URL=http://127.0.0.1:5000/v3
+   export OS_AUTH_URL=http://127.0.0.1/identity
    export OS_IDENTITY_API_VERSION=3
    export OS_IMAGE_API_VERSION=2
    export OS_NETWORK_API_VERSION=2
@@ -71,7 +91,7 @@ Create a vim and verify it works:
    $ source openrc-test.sh
    $ openstack secret list
 
-   $ tacker vim-register --config-file vim-test.yaml vim-test
+   $ openstack vim register --config-file vim-test.yaml vim-test
    Created a new vim:
    +----------------+---------------------------------------------------------+
    | Field          | Value                                                   |
@@ -79,9 +99,9 @@ Create a vim and verify it works:
    | auth_cred      | {"username": "test", "password": "***", "project_name": |
    |                | "test", "user_domain_name": "Default", "key_type":      |
    |                | "barbican_key", "secret_uuid": "***", "auth_url":       |
-   |                | "http://127.0.0.1:5000/v3", "project_id": null,         |
+   |                | "http://127.0.0.1/identity/v3", "project_id": null,     |
    |                | "project_domain_name": "Default"}                       |
-   | auth_url       | http://127.0.0.1:5000/v3                                |
+   | auth_url       | http://127.0.0.1/identity/v3                            |
    | created_at     | 2017-06-20 14:56:05.622612                              |
    | description    |                                                         |
    | id             | 7c0b73c7-554b-46d3-a35c-c368019716a0                    |
@@ -111,7 +131,7 @@ Now we create a vnf to verify it works:
 
 .. code-block:: bash
 
-   $ tacker vnf-create --vnfd-template vnfd-sample.yaml \
+   $ openstack vnf create --vnfd-template vnfd-sample.yaml \
      --vim-name vim-test --vim-region-name RegionOne vnf-test
    Created a new vnf:
    +----------------+-------------------------------------------------------+
@@ -132,7 +152,7 @@ Now we create a vnf to verify it works:
    | vnfd_id        | dc68ccfd-fd7c-4ef6-8fed-f097d036c722                  |
    +----------------+-------------------------------------------------------+
 
-   $ tacker vnf-delete vnf-test
+   $ openstack vnf delete vnf-test
 
 We can found that vnf create successfully.
 
@@ -140,7 +160,7 @@ Now we delete the vim to verify the secret can be deleted.
 
 .. code-block:: bash
 
-   $ tacker vim-delete vim-test
+   $ openstack vim delete vim-test
    All vim(s) deleted successfully
    $ openstack secret list
 
